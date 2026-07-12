@@ -1,0 +1,30 @@
+# Apptainer definition: SedonaDB on top of the gdal-r-python image chain.
+# Build (needs docker image visible to apptainer, or push to a registry):
+#   apptainer build sedonadb.sif sedonadb.def
+# From a local docker daemon instead:
+#   apptainer build sedonadb.sif docker-daemon://gdal-r-python:latest
+#   (then pip-install the sedona packages in a derived def, as below)
+
+Bootstrap: docker
+From: ghcr.io/mdsumner/gdal-r-python:latest
+
+%post
+    # Core engine + Zarr extension + expression accessor (.rst etc).
+    # sedonadb-zarr is a separate wheel from the core package.
+    python3 -m pip install --no-cache-dir --break-system-packages \
+        sedonadb \
+        sedonadb-zarr \
+        sedonadb-expr
+
+    # Optional: R bindings via r-universe (check raster/zarr surface first;
+    # as of 0.4 the N-D path is exercised from Python).
+    # Rscript -e 'install.packages("sedonadb", repos = c("https://apache.r-universe.dev", "https://cloud.r-project.org"))'
+
+%environment
+    # Keep tokio/rayon inside the slurm cpuset; slurm cgroups enforce this
+    # anyway, but being explicit avoids oversubscription on shared nodes.
+    export TOKIO_WORKER_THREADS=${SLURM_CPUS_PER_TASK:-4}
+    export RAYON_NUM_THREADS=${SLURM_CPUS_PER_TASK:-4}
+
+%runscript
+    exec python3 "$@"

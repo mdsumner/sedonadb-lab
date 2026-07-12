@@ -1,0 +1,5 @@
+*.sif
+*.zarr/
+out/
+logs/
+__pycache__/
