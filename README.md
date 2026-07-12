@@ -11,14 +11,31 @@ shards naturally by chunk/dimension ranges.
 
 ## Files
 
-- `sedonadb.def`     Apptainer definition on top of gdal-r-python.
+- `Dockerfile`       Docker layer on gdal-r-python (the Setonix path).
+- `sedonadb.def`     Apptainer definition (for laptop/Nimbus builds).
 - `verify_zarr.py`   Generate a known-good fixture, or 3-stage check any
                      store: enumerate -> slice -> decode.
 - `worker.py`        One engine per array task; filters chunk rows by
                      spatial window; writes a parquet part.
 - `run_chunks.sbatch` Array-job harness around the worker.
 
-## Quickstart
+## Quickstart on Setonix (Pawsey)
+
+Setonix runs Singularity (not Apptainer; same SIF format, same def
+syntax, different command name) and does not permit on-system builds.
+Build the Docker image in CI, push to a registry, pull on Setonix:
+
+    module load singularity/<version>-nompi
+    # keep the conversion cache off /home (small quota)
+    export SINGULARITY_CACHEDIR=$MYSOFTWARE/.singularity
+    singularity pull sedonadb.sif docker://ghcr.io/<you>/gdal-sedonadb:latest
+
+The Pawsey nompi module auto-binds /scratch and /software. Images must
+be Ubuntu 24.04+ after the CPE 25.03 upgrade (the gdal-r-python chain
+already is). run_chunks.sbatch defaults to the singularity command;
+set CONTAINER_EXEC=apptainer elsewhere.
+
+## Quickstart (generic, own machine)
 
     apptainer build sedonadb.sif sedonadb.def
 

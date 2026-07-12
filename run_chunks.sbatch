@@ -14,6 +14,7 @@
 set -euo pipefail
 
 SIF=${SIF:-sedonadb.sif}
+module load singularity/*-nompi 2>/dev/null || true   # Setonix; no-op elsewhere
 ZARR_URL=${ZARR_URL:?set ZARR_URL, e.g. s3://bucket/path.zarr or https://...}
 ARRAY_NAME=${ARRAY_NAME:?set ARRAY_NAME, the zarr array/variable to read}
 OUTDIR=${OUTDIR:-$PWD/out}
@@ -24,7 +25,7 @@ mkdir -p "$OUTDIR" logs
 # --cleanenv keeps host python/R env vars out; pass through only what
 # the worker needs. Add -B for scratch or data mounts as required,
 # e.g. -B /scratch,/g/data on gadi-style systems.
-apptainer exec --cleanenv \
+${CONTAINER_EXEC:-singularity} exec --cleanenv \
     --env "TOKIO_WORKER_THREADS=${SLURM_CPUS_PER_TASK}" \
     --env "RAYON_NUM_THREADS=${SLURM_CPUS_PER_TASK}" \
     --env "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}" \
