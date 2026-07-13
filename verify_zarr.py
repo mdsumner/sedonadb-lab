@@ -27,6 +27,16 @@ v2 (consolidated) and v3, default codecs. Known constraints:
 import os
 import sys
 
+# Probe pyarrow BEFORE importing sedonadb: symbol resolution is
+# import-order dependent when LD_LIBRARY_PATH shadows wheel-bundled
+# libs (observed on Setonix: pyarrow imports clean alone but fails
+# after sedonadb's native libs load first).
+try:
+    import pyarrow  # noqa: F401
+    _PYARROW_ERR = None
+except Exception as _e:
+    _PYARROW_ERR = _e
+
 import sedonadb
 import sedonadb_zarr
 
@@ -46,10 +56,10 @@ def normalize_url(url):
 
 
 def have_pyarrow():
-    try:
-        import pyarrow  # noqa: F401
+    if _PYARROW_ERR is None:
         return True
-    except Exception as e:
+    else:
+        e = _PYARROW_ERR
         print("WARNING: pyarrow is broken in this environment:")
         print("  " + str(e).splitlines()[0])
         print("  (often an LD_LIBRARY_PATH clash with a system Arrow/abseil;")
