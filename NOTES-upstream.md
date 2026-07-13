@@ -70,6 +70,17 @@ nearly mechanical for regular grids. Three seams:
 
 ## Asks, ranked
 
+0. Bug with reproducer: importing sedonadb eagerly imports rasterio
+   and pyogrio at package-import time, loading libgdal and (where GDAL
+   links Arrow) the system libarrow, which poisons the libarrow soname
+   for a later pyarrow import (undefined abseil symbol in the wheel's
+   substrait; both Arrows 25.0.0, different vendored abseil LTS).
+   Reproducer: "import pyarrow; import sedonadb" works,
+   "import sedonadb; import pyarrow" fails; /proc/self/maps shows the
+   system libarrow mapped by the sedonadb import alone. Proposed fix:
+   lazy-import rasterio/pyogrio in the Python GDAL loader on first
+   use. Also improves import time and removes a hard dependency for
+   users who never touch the GDAL loader.
 1. Reference-store input: accept a persisted chunk relation
    (kerchunk-parquet, Icechunk manifest, blocklist output) as the chunk
    table, via a byte-range outdb scheme. One mechanism unlocks the

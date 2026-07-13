@@ -97,20 +97,59 @@ enumeration and envelope predicates work either way.
 
 ## Environment notes
 
-- Never set a blanket LD_LIBRARY_PATH=/usr/local/lib in the image.
-  It shadows the native libs bundled inside manylinux wheels (pyarrow's
-  libarrow_substrait vs system abseil was the symptom). Register lib
-  dirs via /etc/ld.so.conf.d + ldconfig instead: ldconfig paths resolve
-  after a library's RUNPATH, LD_LIBRARY_PATH resolves before it.
+### The pyarrow/Arrow soname collision (diagnosed on Setonix)
+
+Symptom: pyarrow imports cleanly on its own but fails with an undefined
+abseil symbol (in libarrow_substrait) when imported AFTER sedonadb.
+
+Mechanism (confirmed via /proc/self/maps): import sedonadb eagerly
+imports rasterio and pyogrio; rasterio loads libgdal; libgdal (built
+with the Parquet/Arrow driver against apt libarrow-dev) loads the
+system libarrow.so.2500 from /usr/lib/x86_64-linux-gnu, which vendors
+an older abseil LTS statically. That registers the libarrow soname in
+the process. When pyarrow later loads, the dynamic linker reuses the
+already-loaded system copy instead of the wheel's own $ORIGIN copy
+(soname first-load-wins), and the wheel's substrait cannot find the
+newer abseil LTS symbols it expects. Both Arrows being the same
+version (25.0.0) does not help: Ubuntu packaged against an older
+abseil than the manylinux wheel.
+
+Consequences:
+- Import ORDER is the runtime lever. Clearing LD_LIBRARY_PATH does
+  not fix the sedonadb-first ordering (soname reuse ignores search
+  paths). verify_zarr.py therefore probes pyarrow before importing
+  sedonadb; do the same in your own code, or add a sitecustomize.py
+  containing a guarded "import pyarrow" to the venv to make the
+  wheel's Arrow win the race in every process.
+- In the pyarrow-first order, GDAL's libarrow dependency resolves to
+  the wheel's copy instead; same version, stable C API, works, but
+  be aware the Parquet driver is then running on the wheel's Arrow.
+- The coherent single-Arrow fix is building pyarrow from source
+  against the apt Arrow (ARROW_HOME=/usr, pip --no-binary pyarrow),
+  at the cost of version lockstep with the GDAL-side Arrow.
+- Upstream fix (proposed): sedonadb should lazy-import rasterio and
+  pyogrio in its Python GDAL loader rather than at package import.
+
+### General
+
+- Avoid a persistent ENV LD_LIBRARY_PATH=/usr/local/lib in images:
+  it shadows wheel-bundled libs (a second, independent collision
+  channel). If build steps need it, set it per-RUN line; register lib
+  dirs for runtime via /etc/ld.so.conf.d + ldconfig (ldconfig paths
+  resolve after a library's RUNPATH; LD_LIBRARY_PATH before it).
 - Multiple Arrow implementations in one process is normal and by
-  design: GDAL's C++ Arrow, sedonadb's arrow-rs, pyarrow's bundled
-  libarrow interoperate over the Arrow C Data Interface. Do not try to
-  unify them outside a conda-style single-ABI build.
-- sedonadb's pyarrow imports are lazy: count(), show(), to_parquet()
-  run rust-side, so the slurm worker functions even where pyarrow is
+  design (GDAL C++, sedonadb arrow-rs, pyarrow) interoperating over
+  the Arrow C Data Interface. The collision above is two copies of
+  the SAME C++ implementation fighting over one soname, which is the
+  one configuration that is not fine.
+- sedonadb's pyarrow use is lazy: count(), show(), to_parquet() run
+  rust-side, so the slurm worker functions even where pyarrow is
   broken. verify_zarr.py degrades gracefully (skips dim introspection).
-- pip in the image needs --break-system-packages on Ubuntu 24.04 unless
-  installing into a venv.
+- Pawsey singularity modules inject host paths (Cray MPI) into
+  LD_LIBRARY_PATH inside containers; harmless for this non-MPI
+  workload, required for MPI ones, so do not blanket-unset for those.
+- pip in the image needs --break-system-packages on Ubuntu 24.04
+  unless installing into a venv.
 
 ## Acceptance test for image rebuilds
 
