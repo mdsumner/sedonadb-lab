@@ -127,8 +127,12 @@ Consequences:
 - The coherent single-Arrow fix is building pyarrow from source
   against the apt Arrow (ARROW_HOME=/usr, pip --no-binary pyarrow),
   at the cost of version lockstep with the GDAL-side Arrow.
-- Upstream fix (proposed): sedonadb should lazy-import rasterio and
-  pyogrio in its Python GDAL loader rather than at package import.
+- Upstream fix (proposed): defer configure_gdal("auto") /
+  configure_proj("auto") from package import to first use. Removing
+  rasterio does not help: the "auto" probe (rasterio, pyogrio, conda,
+  homebrew, system) eagerly dlopens whichever libgdal it finds first,
+  and on a source-built image every preset reaches the same
+  Arrow-linked libgdal.
 
 ### General
 

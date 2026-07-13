@@ -70,17 +70,38 @@ nearly mechanical for regular grids. Three seams:
 
 ## Asks, ranked
 
-0. Bug with reproducer: importing sedonadb eagerly imports rasterio
-   and pyogrio at package-import time, loading libgdal and (where GDAL
-   links Arrow) the system libarrow, which poisons the libarrow soname
-   for a later pyarrow import (undefined abseil symbol in the wheel's
-   substrait; both Arrows 25.0.0, different vendored abseil LTS).
-   Reproducer: "import pyarrow; import sedonadb" works,
-   "import sedonadb; import pyarrow" fails; /proc/self/maps shows the
-   system libarrow mapped by the sedonadb import alone. Proposed fix:
-   lazy-import rasterio/pyogrio in the Python GDAL loader on first
-   use. Also improves import time and removes a hard dependency for
-   users who never touch the GDAL loader.
+0. Bug with reproducer: sedonadb/__init__.py calls
+   configure_gdal("auto") and configure_proj("auto") at package
+   import. "auto" probes presets in order (rasterio, pyogrio, conda,
+   homebrew, system) and dlopens the first libgdal found, eagerly,
+   at import time (verified: the "system" preset attempts the dlopen
+   immediately). Where that libgdal links a clean-soname Arrow C++
+   (e.g. GDAL built with the Parquet driver against apt libarrow),
+   the system libarrow soname is registered before pyarrow loads;
+   pyarrow's wheel then reuses it (soname first-load-wins) and fails
+   with an undefined abseil symbol in libarrow_substrait -- both
+   Arrows 25.0.0, different vendored abseil LTS.
+
+   Reproducer: "import pyarrow; import sedonadb" works;
+   "import sedonadb; import pyarrow" fails; /proc/self/maps shows
+   the system libarrow mapped by the sedonadb import alone.
+
+   Why upstream CI cannot see it: on wheel installs the cascade is
+   accidentally safe twice over -- pyogrio imports pyarrow as a side
+   effect (pyarrow wins the race by accident; observed via
+   sys.modules after a bare import sedonadb), and wheel-bundled
+   GDALs carry auditwheel-mangled sonames that cannot collide.
+   Source-built geospatial stacks (custom images, HPC) remove both
+   protections.
+
+   Proposed fix: defer configure_gdal/configure_proj from import
+   time to immediately before the first GDAL-backed / transform
+   operation. The docstrings already state configuration has no
+   effect after the first such operation, so lazy configuration is
+   semantics-preserving; it also removes the soft-dependency probe
+   and its import cost for users who never touch the GDAL loader.
+   Note this is not about rasterio per se: removing rasterio just
+   promotes pyogrio (or "system") into the same eager-dlopen role.
 1. Reference-store input: accept a persisted chunk relation
    (kerchunk-parquet, Icechunk manifest, blocklist output) as the chunk
    table, via a byte-range outdb scheme. One mechanism unlocks the
