@@ -3,3 +3,6 @@
 out/
 logs/
 __pycache__/
+.Rproj.user
+.positai
+.Rhistory
