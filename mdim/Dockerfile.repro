@@ -1,0 +1,30 @@
+# Reproducer image for the sedonadb eager configure_gdal("auto") Arrow
+# soname collision, on a neutral third-party base: the official OSGeo
+# GDAL image.
+#
+#   docker build -t sedonadb-repro -f Dockerfile.repro .
+#   docker run --rm sedonadb-repro
+#
+# repro.py asserts the deterministic MECHANISM, not just the crash:
+# after "import sedonadb", does pyarrow's libarrow resolve from the
+# image's Arrow instead of the wheel's own $ORIGIN copy (soname
+# first-load-wins)?
+#
+# Observed on this base (2026-10): the eager load fires (libgdal is
+# dlopened at import via the system preset) but this image links Arrow
+# statically, so no shared libarrow soname registers and the result is
+# "not reproduced". The collision manifests where GDAL is dynamically
+# linked against a shared, unmangled Arrow C++ (e.g. apt libarrow-dev
+# plus a source-built GDAL with the Parquet driver). See
+# drafts/issue-defer-config.md for the four-environment matrix.
+
+FROM ghcr.io/osgeo/gdal:ubuntu-full-latest
+
+RUN apt update && apt install -y python3-pip
+
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+        sedonadb pyarrow
+
+COPY repro.py /repro.py
+
+CMD ["python3", "/repro.py"]
